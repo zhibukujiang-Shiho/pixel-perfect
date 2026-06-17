@@ -1,211 +1,311 @@
-// audio.ts — Tone.js による音楽エンジン。
-// 6 モード (Ambient / Electronic / Piano / Orchestra / Future Bass / Music) と
-// 8 種類のインパクトサウンドを提供する。
-// 身体の動き (energy 0..1) と二人の距離 (closeness 0..1) で BPM / Filter / Reverb / Volume が変化。
+// audio.ts — Tone.js による音響エンジン。
+//
+// 設計思想:
+//   この作品の主役は「二人が触れ合う瞬間」。常時音楽は流さない。
+//   - アンビエンス: 常にごく微弱 (約 10%) の空間音だけを鳴らす。
+//   - 動作演出: 身体が動いた時にのみ、控えめな補助音を疎らに鳴らす (約 20%)。
+//   - インパクト: 接触イベントの瞬間だけマスターを 100% に引き上げ、派手な効果音を鳴らす。
+//
+// 接触イベントを最大限に際立たせるため、常時鳴る音はあえて「音楽」として
+// 認識できないレベルに抑えている。
 
 import * as Tone from "tone";
 import type { MusicMode, ImpactSound } from "./settings";
 
-const SCALES: Record<MusicMode, string[]> = {
-  ambient:    ["A3", "C4", "E4", "G4", "A4", "C5", "E5"],
-  electronic: ["C3", "Eb3", "G3", "Bb3", "C4", "Eb4", "G4"],
-  piano:      ["C4", "D4", "E4", "G4", "A4", "C5", "D5", "E5"],
-  orchestra:  ["C3", "E3", "G3", "B3", "D4", "E4", "G4", "B4"],
-  futurebass: ["F3", "Ab3", "C4", "Eb4", "F4", "Ab4", "C5"],
-  music:      ["C4", "D4", "E4", "G4", "A4", "C5"],
+const SCALES: Record<Exclude<MusicMode, "music" | "funny">, string[]> = {
+  ambient:    ["A3", "C4", "E4", "G4", "A4", "C5"],
+  electronic: ["C3", "Eb3", "G3", "Bb3", "C4", "Eb4"],
+  piano:      ["C4", "D4", "E4", "G4", "A4", "C5"],
+  orchestra:  ["C3", "E3", "G3", "B3", "D4", "E4"],
+  futurebass: ["F3", "Ab3", "C4", "Eb4", "F4", "Ab4"],
 };
+
+// 各バスのベース音量 (dB)。マスターはユーザ設定。
+const AMBIENCE_BASE_DB = -22;   // 通常時 ≒ 10%
+const AMBIENCE_MOVE_DB = -16;   // 動作時 ≒ 20%
+const MOTION_BASE_DB   = -28;   // 動作時の補助音 (高音域は控えめ)
+const IMPACT_BASE_DB   = 0;     // 接触時 = 100%
 
 export class AudioEngine {
   private started = false;
   private mode: MusicMode = "ambient";
   private muted = false;
-  private masterVol!: Tone.Volume;
-  private reverb!: Tone.Reverb;
-  private filter!: Tone.Filter;
-  private delay!: Tone.FeedbackDelay;
+  private userVolume = 0.8;
 
-  private leadSynth!: Tone.PolySynth;
-  private bass!: Tone.MonoSynth;
-  private pad!: Tone.PolySynth;
+  private master!: Tone.Volume;
 
-  // Music モード用ループ
-  private loop?: Tone.Loop;
-  private noise!: Tone.NoiseSynth;
-  private membrane!: Tone.MembraneSynth;
-  private metal!: Tone.MetalSynth;
+  // 3つのバス: 常時アンビエンス / 動作補助音 / インパクト
+  private ambienceBus!: Tone.Volume;
+  private motionBus!: Tone.Volume;
+  private impactBus!: Tone.Volume;
 
-  private lastNoteAt = 0;
+  private reverbAmb!: Tone.Reverb;
+  private reverbImpact!: Tone.Reverb;
+
+  // アンビエンス用 (常に鳴る低音ドローン + 微かなノイズ)
+  private drone?: Tone.Oscillator;
+  private droneSub?: Tone.Oscillator;
+  private noiseBed?: Tone.Noise;
+  private noiseFilter?: Tone.Filter;
+
+  // 動作補助音
+  private motionPad!: Tone.PolySynth;
+  private motionFilter!: Tone.Filter;
+
+  // インパクト用
+  private impactSynth!: Tone.PolySynth;
+  private impactBass!: Tone.MonoSynth;
+  private impactNoise!: Tone.NoiseSynth;
+  private impactMembrane!: Tone.MembraneSynth;
+  private impactMetal!: Tone.MetalSynth;
+
+  private lastMotionAt = 0;
   private impactCooldown = 0;
+  private impactDuckTimer: number | null = null;
 
   async start() {
     if (this.started) return;
     await Tone.start();
     this.started = true;
 
-    this.masterVol = new Tone.Volume(-6).toDestination();
-    this.reverb = new Tone.Reverb({ decay: 4, wet: 0.35 }).connect(this.masterVol);
-    this.delay = new Tone.FeedbackDelay({ delayTime: "8n", feedback: 0.25, wet: 0.2 }).connect(this.reverb);
-    this.filter = new Tone.Filter(1200, "lowpass").connect(this.delay);
+    this.master = new Tone.Volume(Tone.gainToDb(this.userVolume)).toDestination();
 
-    this.pad = new Tone.PolySynth(Tone.Synth, {
+    this.ambienceBus = new Tone.Volume(AMBIENCE_BASE_DB).connect(this.master);
+    this.motionBus = new Tone.Volume(MOTION_BASE_DB).connect(this.master);
+    this.impactBus = new Tone.Volume(IMPACT_BASE_DB).connect(this.master);
+
+    this.reverbAmb = new Tone.Reverb({ decay: 8, wet: 0.7 }).connect(this.ambienceBus);
+    this.reverbImpact = new Tone.Reverb({ decay: 3, wet: 0.4 }).connect(this.impactBus);
+
+    // --- 常時アンビエンス: 低音ドローン + 5度の薄い倍音 + フィルタしたピンクノイズ ---
+    this.drone = new Tone.Oscillator({ frequency: 55, type: "sine", volume: -8 }).connect(this.reverbAmb).start();
+    this.droneSub = new Tone.Oscillator({ frequency: 82.4, type: "sine", volume: -16 }).connect(this.reverbAmb).start();
+    this.noiseFilter = new Tone.Filter(800, "lowpass").connect(this.reverbAmb);
+    this.noiseBed = new Tone.Noise({ type: "pink", volume: -22 }).connect(this.noiseFilter).start();
+
+    // --- 動作補助音: 高音域を抑えたパッド ---
+    this.motionFilter = new Tone.Filter(900, "lowpass").connect(this.motionBus);
+    this.motionPad = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "sine" },
-      envelope: { attack: 0.6, decay: 0.5, sustain: 0.6, release: 2 },
-      volume: -14,
-    }).connect(this.filter);
+      envelope: { attack: 0.4, decay: 0.4, sustain: 0.0, release: 1.6 },
+      volume: -6,
+    }).connect(this.motionFilter);
 
-    this.leadSynth = new Tone.PolySynth(Tone.Synth, {
+    // --- インパクト用シンセ群 ---
+    this.impactSynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "triangle" },
-      envelope: { attack: 0.02, decay: 0.3, sustain: 0.3, release: 1.2 },
-      volume: -10,
-    }).connect(this.filter);
-
-    this.bass = new Tone.MonoSynth({
+      envelope: { attack: 0.005, decay: 0.3, sustain: 0.2, release: 1.2 },
+      volume: -4,
+    }).connect(this.reverbImpact);
+    this.impactBass = new Tone.MonoSynth({
       oscillator: { type: "sawtooth" },
       filter: { Q: 2, type: "lowpass", rolloff: -24 },
-      envelope: { attack: 0.02, decay: 0.2, sustain: 0.4, release: 0.6 },
-      volume: -14,
-    }).connect(this.filter);
-
-    this.noise = new Tone.NoiseSynth({
+      envelope: { attack: 0.005, decay: 0.3, sustain: 0.3, release: 0.8 },
+      volume: -6,
+    }).connect(this.reverbImpact);
+    this.impactNoise = new Tone.NoiseSynth({
       noise: { type: "white" },
-      envelope: { attack: 0.001, decay: 0.2, sustain: 0 },
-      volume: -10,
-    }).connect(this.reverb);
+      envelope: { attack: 0.001, decay: 0.3, sustain: 0 },
+      volume: -4,
+    }).connect(this.reverbImpact);
+    this.impactMembrane = new Tone.MembraneSynth({ volume: -2 }).connect(this.reverbImpact);
+    this.impactMetal = new Tone.MetalSynth({ volume: -12 }).connect(this.reverbImpact);
 
-    this.membrane = new Tone.MembraneSynth({ volume: -6 }).connect(this.reverb);
-    this.metal = new Tone.MetalSynth({ volume: -18 }).connect(this.reverb);
-
-    Tone.getTransport().bpm.value = 96;
     Tone.getTransport().start();
   }
 
   setMode(m: MusicMode) {
     this.mode = m;
-    this.loop?.dispose();
-    this.loop = undefined;
-    if (m === "music") this.startMusicLoop();
   }
 
   setVolume(v: number) {
+    this.userVolume = v;
     if (!this.started) return;
-    this.masterVol.volume.rampTo(this.muted ? -Infinity : Tone.gainToDb(Math.max(0.0001, v)), 0.1);
-  }
-  setMuted(m: boolean) {
-    this.muted = m;
-    if (this.started) this.masterVol.mute = m;
+    this.master.volume.rampTo(this.muted ? -Infinity : Tone.gainToDb(Math.max(0.0001, v)), 0.1);
   }
 
-  /** energy:動きの大きさ 0..1, closeness:二人の近さ 0..1 (近いほど大) */
+  setMuted(m: boolean) {
+    this.muted = m;
+    if (this.started) this.master.mute = m;
+  }
+
+  /** energy: 動きの大きさ 0..1, closeness: 二人の近さ 0..1 (近いほど大)
+   *  - アンビエンスの帯域・音量を緩やかにモジュレート
+   *  - 動作補助音は energy が十分大きい時のみ、低頻度・低音量で鳴らす */
   tick(energy: number, closeness = 0) {
     if (!this.started || this.muted) return;
 
-    // 距離による調和度: 近いほどフィルター開放・リバーブ抑え・ディレイ控えめ
-    const cutoff = 400 + (energy * 0.6 + closeness * 0.4) * 5500;
-    this.filter.frequency.rampTo(cutoff, 0.2);
-    this.reverb.wet.rampTo(0.5 - closeness * 0.3, 0.5);
-    this.delay.wet.rampTo(0.15 + (1 - closeness) * 0.25, 0.5);
+    // アンビエンス: 動き/近さで微かに膨らむだけ (常時は約10%)
+    const movement = Math.min(1, energy * 0.7 + closeness * 0.3);
+    const ambDb = AMBIENCE_BASE_DB + (AMBIENCE_MOVE_DB - AMBIENCE_BASE_DB) * movement;
+    this.ambienceBus.volume.rampTo(ambDb, 0.4);
+    if (this.noiseFilter) this.noiseFilter.frequency.rampTo(500 + movement * 1200, 0.5);
+    if (this.droneSub) this.droneSub.volume.rampTo(-18 + movement * 6, 0.5);
 
-    // BPM は energy で 80..150
-    const targetBpm = 80 + energy * 70 + closeness * 8;
-    Tone.getTransport().bpm.rampTo(targetBpm, 0.5);
-
-    if (this.mode === "music") return; // music モードはループに任せる
-    this.spawnNote(energy);
+    // 動作補助音 — 大きく動いた時だけ、まばらに
+    this.spawnMotionAccent(energy);
   }
 
-  private spawnNote(energy: number) {
+  private spawnMotionAccent(energy: number) {
+    if (this.mode === "funny") return; // funny は接触に全振り
     const now = Tone.now();
-    const minGap = Math.max(0.12, 0.7 - energy * 0.6);
-    if (now - this.lastNoteAt < minGap || energy < 0.04) return;
-    this.lastNoteAt = now;
+    // 高い閾値 & 長いインターバルで「補助」程度に抑える
+    if (energy < 0.35) return;
+    const minGap = Math.max(0.8, 2.2 - energy * 1.5);
+    if (now - this.lastMotionAt < minGap) return;
+    if (Math.random() > 0.6) return;
+    this.lastMotionAt = now;
 
-    const scale = SCALES[this.mode];
-    const idx = Math.min(scale.length - 1, Math.floor(energy * scale.length * 1.1));
+    const scale = SCALES[this.mode === "music" ? "ambient" : this.mode] ?? SCALES.ambient;
+    // 高音域を避けるため下半分から選ぶ
+    const idx = Math.floor(Math.random() * Math.ceil(scale.length / 2));
     const note = scale[idx];
-
-    switch (this.mode) {
-      case "ambient":
-        this.pad.triggerAttackRelease(note, "2n", now, 0.4 + energy * 0.5);
-        break;
-      case "electronic":
-        this.leadSynth.triggerAttackRelease(note, "16n", now, 0.5 + energy * 0.5);
-        if (Math.random() < 0.3) this.bass.triggerAttackRelease(scale[0], "8n", now);
-        break;
-      case "piano":
-        this.leadSynth.triggerAttackRelease(note, "8n", now, 0.5 + energy * 0.5);
-        break;
-      case "orchestra":
-        this.pad.triggerAttackRelease([note, scale[(idx + 2) % scale.length]], "2n", now, 0.5);
-        break;
-      case "futurebass":
-        this.leadSynth.triggerAttackRelease([note, scale[(idx + 2) % scale.length], scale[(idx + 4) % scale.length]], "8n", now, 0.7);
-        if (Math.random() < 0.5) this.bass.triggerAttackRelease(scale[0], "8n", now);
-        break;
-    }
+    this.motionPad.triggerAttackRelease(note, "2n", now, 0.25 + (energy - 0.35) * 0.4);
   }
 
-  private startMusicLoop() {
-    if (!this.started) return;
-    const scale = SCALES.music;
-    let step = 0;
-    this.loop = new Tone.Loop((time) => {
-      const n = scale[step % scale.length];
-      this.leadSynth.triggerAttackRelease(n, "8n", time);
-      if (step % 4 === 0) this.bass.triggerAttackRelease("C2", "8n", time);
-      if (step % 2 === 0) this.membrane.triggerAttackRelease("C1", "16n", time, 0.5);
-      if (step % 8 === 3) this.noise.triggerAttackRelease("16n", time, 0.4);
-      step++;
-    }, "8n").start(0);
-  }
-
-  /** インパクトサウンド — 接触時に呼ぶ。連射防止 (60ms) のクールダウン付き。 */
+  /** インパクトサウンド — 接触時に呼ぶ。瞬間的にマスターを 100% に引き上げる。 */
   playImpact(kind: ImpactSound) {
     if (!this.started || this.muted) return;
     const now = Tone.now();
-    if (now - this.impactCooldown < 0.06) return;
+    if (now - this.impactCooldown < 0.08) return;
     this.impactCooldown = now;
+
+    // マスター・ダッキング: 直前のユーザ音量に関係なく一瞬 0dB(=100%) へ
+    this.master.volume.cancelScheduledValues(now);
+    this.master.volume.setValueAtTime(this.master.volume.value, now);
+    this.master.volume.linearRampToValueAtTime(0, now + 0.02);
+    // 1秒かけて元のユーザ音量へ戻す
+    const targetDb = Tone.gainToDb(Math.max(0.0001, this.userVolume));
+    this.master.volume.linearRampToValueAtTime(targetDb, now + 1.0);
+    if (this.impactDuckTimer) window.clearTimeout(this.impactDuckTimer);
+    this.impactDuckTimer = window.setTimeout(() => { this.impactDuckTimer = null; }, 1100);
+
+    this.triggerImpactSound(kind, now);
+  }
+
+  private triggerImpactSound(kind: ImpactSound, now: number) {
     switch (kind) {
       case "spark":
-        this.metal.triggerAttackRelease("C6", "32n", now, 0.7);
+        this.impactMetal.triggerAttackRelease("C6", "32n", now, 0.9);
+        this.impactSynth.triggerAttackRelease(["E6", "G6"], "16n", now + 0.02, 0.7);
         break;
       case "explosion":
-        this.noise.triggerAttackRelease("4n", now, 1);
-        this.membrane.triggerAttackRelease("C1", "8n", now, 1);
+        this.impactNoise.triggerAttackRelease("4n", now, 1);
+        this.impactMembrane.triggerAttackRelease("C1", "8n", now, 1);
+        this.impactBass.triggerAttackRelease("C2", "4n", now, 1);
         break;
       case "magic":
-        this.leadSynth.triggerAttackRelease(["C5", "E5", "G5", "B5"], "4n", now, 0.8);
+        this.impactSynth.triggerAttackRelease(["C5", "E5", "G5", "B5", "D6"], "2n", now, 0.9);
+        this.impactMetal.triggerAttackRelease("G6", "16n", now + 0.1, 0.5);
         break;
       case "water":
-        this.noise.triggerAttackRelease("8n", now, 0.5);
-        this.pad.triggerAttackRelease(["A4", "C5", "E5"], "2n", now, 0.6);
+        this.impactNoise.triggerAttackRelease("8n", now, 0.6);
+        this.impactSynth.triggerAttackRelease(["A4", "C5", "E5"], "2n", now, 0.7);
         break;
       case "cyber":
-        this.leadSynth.triggerAttackRelease("C6", "16n", now, 0.9);
-        this.bass.triggerAttackRelease("C2", "8n", now, 0.8);
+        this.impactSynth.triggerAttackRelease("C6", "16n", now, 0.95);
+        this.impactBass.triggerAttackRelease("C2", "8n", now, 0.9);
+        this.impactMetal.triggerAttackRelease("A5", "32n", now + 0.05, 0.5);
         break;
       case "drum":
-        this.membrane.triggerAttackRelease("C2", "8n", now, 1);
+        this.impactMembrane.triggerAttackRelease("C2", "8n", now, 1);
+        this.impactNoise.triggerAttackRelease("16n", now, 0.4);
         break;
       case "orchestraHit":
-        this.pad.triggerAttackRelease(["C3", "E3", "G3", "C4", "E4"], "2n", now, 1);
-        this.membrane.triggerAttackRelease("C1", "8n", now, 0.9);
+        this.impactSynth.triggerAttackRelease(["C3", "E3", "G3", "C4", "E4", "G4"], "2n", now, 1);
+        this.impactMembrane.triggerAttackRelease("C1", "8n", now, 0.9);
         break;
       case "edmDrop":
-        this.bass.triggerAttackRelease("C1", "2n", now, 1);
-        this.noise.triggerAttackRelease("4n", now, 0.7);
-        this.leadSynth.triggerAttackRelease(["C4", "G4", "C5"], "4n", now, 0.9);
+        this.impactBass.triggerAttackRelease("C1", "2n", now, 1);
+        this.impactNoise.triggerAttackRelease("4n", now, 0.7);
+        this.impactSynth.triggerAttackRelease(["C4", "G4", "C5"], "4n", now, 0.9);
+        this.impactMembrane.triggerAttackRelease("C1", "8n", now + 0.25, 1);
         break;
+
+      // ----- Funny Mode 系 -----
+      case "spring": {
+        // バイーン: ピッチが急上昇→急下降
+        const s = new Tone.Synth({
+          oscillator: { type: "sawtooth" },
+          envelope: { attack: 0.005, decay: 0.5, sustain: 0, release: 0.1 },
+          volume: -2,
+        }).connect(this.impactBus);
+        s.triggerAttackRelease("A3", 0.5, now, 0.9);
+        s.frequency.setValueAtTime(120, now);
+        s.frequency.exponentialRampToValueAtTime(900, now + 0.08);
+        s.frequency.exponentialRampToValueAtTime(150, now + 0.45);
+        setTimeout(() => s.dispose(), 800);
+        break;
+      }
+      case "cymbal":
+        this.impactMetal.triggerAttackRelease("C5", "2n", now, 1);
+        this.impactNoise.triggerAttackRelease("2n", now, 0.7);
+        break;
+      case "cartoonHit":
+        this.impactMembrane.triggerAttackRelease("C2", "16n", now, 1);
+        this.impactNoise.triggerAttackRelease("16n", now, 0.8);
+        this.impactSynth.triggerAttackRelease("C5", "16n", now + 0.04, 0.9);
+        this.impactMetal.triggerAttackRelease("C6", "32n", now + 0.06, 0.6);
+        break;
+      case "boing": {
+        const s = new Tone.Synth({
+          oscillator: { type: "sine" },
+          envelope: { attack: 0.005, decay: 0.4, sustain: 0, release: 0.1 },
+          volume: -4,
+        }).connect(this.impactBus);
+        s.triggerAttackRelease("C4", 0.4, now, 0.9);
+        s.frequency.setValueAtTime(200, now);
+        s.frequency.exponentialRampToValueAtTime(700, now + 0.05);
+        s.frequency.exponentialRampToValueAtTime(280, now + 0.18);
+        s.frequency.exponentialRampToValueAtTime(500, now + 0.3);
+        setTimeout(() => s.dispose(), 700);
+        break;
+      }
+      case "partyHorn": {
+        // パーティークラッカー: ノイズ + 上昇する音
+        this.impactNoise.triggerAttackRelease("16n", now, 0.8);
+        const s = new Tone.Synth({
+          oscillator: { type: "square" },
+          envelope: { attack: 0.005, decay: 0.35, sustain: 0, release: 0.1 },
+          volume: -6,
+        }).connect(this.impactBus);
+        s.triggerAttackRelease("E4", 0.35, now + 0.02, 0.9);
+        s.frequency.setValueAtTime(330, now + 0.02);
+        s.frequency.exponentialRampToValueAtTime(880, now + 0.3);
+        setTimeout(() => s.dispose(), 600);
+        break;
+      }
+      case "fanfare": {
+        // ゲームクリア風の短いファンファーレ
+        const seq = [
+          { n: "C5", t: 0.0,  d: "16n" },
+          { n: "E5", t: 0.12, d: "16n" },
+          { n: "G5", t: 0.24, d: "16n" },
+          { n: "C6", t: 0.36, d: "4n" },
+        ];
+        for (const { n, t, d } of seq) {
+          this.impactSynth.triggerAttackRelease(n, d, now + t, 0.9);
+        }
+        this.impactMembrane.triggerAttackRelease("C2", "8n", now, 0.8);
+        break;
+      }
     }
   }
 
   dispose() {
     try {
-      this.loop?.dispose();
+      if (this.impactDuckTimer) window.clearTimeout(this.impactDuckTimer);
       Tone.getTransport().stop();
-      this.leadSynth?.dispose(); this.bass?.dispose(); this.pad?.dispose();
-      this.noise?.dispose(); this.membrane?.dispose(); this.metal?.dispose();
-      this.filter?.dispose(); this.delay?.dispose(); this.reverb?.dispose();
-      this.masterVol?.dispose();
+      this.drone?.stop(); this.drone?.dispose();
+      this.droneSub?.stop(); this.droneSub?.dispose();
+      this.noiseBed?.stop(); this.noiseBed?.dispose();
+      this.noiseFilter?.dispose();
+      this.motionPad?.dispose(); this.motionFilter?.dispose();
+      this.impactSynth?.dispose(); this.impactBass?.dispose();
+      this.impactNoise?.dispose(); this.impactMembrane?.dispose(); this.impactMetal?.dispose();
+      this.reverbAmb?.dispose(); this.reverbImpact?.dispose();
+      this.ambienceBus?.dispose(); this.motionBus?.dispose(); this.impactBus?.dispose();
+      this.master?.dispose();
     } catch {}
     this.started = false;
   }

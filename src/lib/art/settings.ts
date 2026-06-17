@@ -1,15 +1,18 @@
 // settings.ts — 体験のグローバル設定。LocalStorage に保存して画面遷移後も保持する。
 // 変更箇所: DEFAULTS の値を変えれば初期値を調整できる。
 
-export type MusicMode = "ambient" | "electronic" | "piano" | "orchestra" | "futurebass" | "music";
+export type MusicMode =
+  | "ambient" | "electronic" | "piano" | "orchestra" | "futurebass" | "music" | "funny";
 export type DisplayMode = "normal" | "bodyFollow";
 export type OutputTarget = "preview" | "projector";
 export type ImpactSound =
   | "spark" | "explosion" | "magic" | "water"
-  | "cyber" | "drum" | "orchestraHit" | "edmDrop";
+  | "cyber" | "drum" | "orchestraHit" | "edmDrop"
+  // Funny Mode 用
+  | "spring" | "cymbal" | "cartoonHit" | "boing" | "partyHorn" | "fanfare";
 
 export interface ArtSettings {
-  volume: number;        // 0..1
+  volume: number;        // 0..1 (マスター音量)
   sensitivity: number;   // 0.5..3
   mode: MusicMode;
   soundOn: boolean;
@@ -18,10 +21,10 @@ export interface ArtSettings {
   impactSound: ImpactSound;
 }
 
-const KEY = "art-settings-v2";
+const KEY = "art-settings-v3";
 
 export const DEFAULTS: ArtSettings = {
-  volume: 0.6,
+  volume: 0.8,
   sensitivity: 1.2,
   mode: "ambient",
   soundOn: true,
@@ -53,6 +56,7 @@ export const MODE_LABELS: Record<MusicMode, string> = {
   orchestra: "Orchestra",
   futurebass: "Future Bass",
   music: "Music",
+  funny: "Funny",
 };
 
 export const DISPLAY_LABELS: Record<DisplayMode, string> = {
@@ -74,4 +78,10 @@ export const IMPACT_LABELS: Record<ImpactSound, string> = {
   drum: "Drum Hit",
   orchestraHit: "Orchestra Hit",
   edmDrop: "EDM Drop",
+  spring: "Spring (バイーン)",
+  cymbal: "Cymbal Crash",
+  cartoonHit: "Cartoon Hit",
+  boing: "Boing",
+  partyHorn: "Party Horn",
+  fanfare: "Success Fanfare",
 };
