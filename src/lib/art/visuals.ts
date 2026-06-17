@@ -70,36 +70,41 @@ export class VisualRenderer {
 
   resize = () => { this.targets.forEach((t) => this.sizeOne(t)); };
 
-  /** 接触インパクト演出を投入 */
+  /** 接触インパクト演出を投入 — 大型フラッシュ + 波紋 + パーティクル爆発 + 全画面エネルギー拡散 */
   triggerImpact(at: Vec2, color = "#22D3EE") {
-    this.flash = Math.min(1, this.flash + 0.7);
+    this.flash = Math.min(1, this.flash + 0.95);
     const t0 = this.targets[0];
     if (!t0) return;
     const cx = at.x * t0.w;
     const cy = at.y * t0.h;
-    // 複数のリング
-    for (let i = 0; i < 3; i++) {
-      this.rings.push({ x: cx, y: cy, r: 8, max: 320 + i * 80, color, width: 4 - i, life: 0 });
+    // 画面全体へ広がる大型リング (エネルギー拡散)
+    const screenR = Math.hypot(t0.w, t0.h);
+    for (let i = 0; i < 5; i++) {
+      this.rings.push({
+        x: cx, y: cy, r: 8,
+        max: screenR * (0.6 + i * 0.25),
+        color, width: 6 - i, life: 0,
+      });
     }
-    // 光線
-    const rays = 14;
+    // 光線 (放射)
+    const rays = 22;
     for (let i = 0; i < rays; i++) {
       this.rays.push({
         x: cx, y: cy, angle: (i / rays) * Math.PI * 2,
-        len: 140 + Math.random() * 200, life: 0, max: 28, color,
+        len: 220 + Math.random() * 320, life: 0, max: 36, color,
       });
     }
     // パーティクル爆発
-    for (let i = 0; i < 180; i++) {
+    for (let i = 0; i < 320; i++) {
       const a = Math.random() * Math.PI * 2;
-      const s = 2 + Math.random() * 9;
+      const s = 3 + Math.random() * 14;
       this.particles.push({
         x: cx, y: cy,
         vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-        life: 0, max: 50 + Math.random() * 50,
-        size: 2 + Math.random() * 4,
+        life: 0, max: 60 + Math.random() * 60,
+        size: 2 + Math.random() * 5,
         color: i % 3 === 0 ? "#F8FAFC" : color,
-        gravity: 0.03,
+        gravity: 0.02,
       });
     }
   }
