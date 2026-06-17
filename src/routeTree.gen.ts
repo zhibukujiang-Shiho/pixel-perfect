@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ProjectorRouteImport } from './routes/projector'
 import { Route as ExperienceRouteImport } from './routes/experience'
 import { Route as IndexRouteImport } from './routes/index'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectorRoute = ProjectorRouteImport.update({
+  id: '/projector',
+  path: '/projector',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ExperienceRoute = ExperienceRouteImport.update({
@@ -32,30 +38,34 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/experience': typeof ExperienceRoute
+  '/projector': typeof ProjectorRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/experience': typeof ExperienceRoute
+  '/projector': typeof ProjectorRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/experience': typeof ExperienceRoute
+  '/projector': typeof ProjectorRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/experience' | '/settings'
+  fullPaths: '/' | '/experience' | '/projector' | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/experience' | '/settings'
-  id: '__root__' | '/' | '/experience' | '/settings'
+  to: '/' | '/experience' | '/projector' | '/settings'
+  id: '__root__' | '/' | '/experience' | '/projector' | '/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ExperienceRoute: typeof ExperienceRoute
+  ProjectorRoute: typeof ProjectorRoute
   SettingsRoute: typeof SettingsRoute
 }
 
@@ -66,6 +76,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projector': {
+      id: '/projector'
+      path: '/projector'
+      fullPath: '/projector'
+      preLoaderRoute: typeof ProjectorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/experience': {
@@ -88,6 +105,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ExperienceRoute: ExperienceRoute,
+  ProjectorRoute: ProjectorRoute,
   SettingsRoute: SettingsRoute,
 }
 export const routeTree = rootRouteImport
