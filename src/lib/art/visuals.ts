@@ -112,7 +112,7 @@ export class VisualRenderer {
   render(persons: PersonPose[], displayMode: DisplayMode, energy: number, closeness: number) {
     for (const t of this.targets) this.renderOne(t, persons, displayMode, energy, closeness);
     // フラッシュ減衰
-    this.flash *= 0.86;
+    this.flash *= 0.94; // 約0.5〜1秒かけて減衰
   }
 
   private renderOne(
