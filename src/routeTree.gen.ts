@@ -11,7 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ProjectorRouteImport } from './routes/projector'
+import { Route as ProjectionRouteImport } from './routes/projection'
 import { Route as ExperienceRouteImport } from './routes/experience'
+import { Route as ControlRouteImport } from './routes/control'
 import { Route as IndexRouteImport } from './routes/index'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -24,9 +26,19 @@ const ProjectorRoute = ProjectorRouteImport.update({
   path: '/projector',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProjectionRoute = ProjectionRouteImport.update({
+  id: '/projection',
+  path: '/projection',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ExperienceRoute = ExperienceRouteImport.update({
   id: '/experience',
   path: '/experience',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ControlRoute = ControlRouteImport.update({
+  id: '/control',
+  path: '/control',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -37,34 +49,61 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/control': typeof ControlRoute
   '/experience': typeof ExperienceRoute
+  '/projection': typeof ProjectionRoute
   '/projector': typeof ProjectorRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/control': typeof ControlRoute
   '/experience': typeof ExperienceRoute
+  '/projection': typeof ProjectionRoute
   '/projector': typeof ProjectorRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/control': typeof ControlRoute
   '/experience': typeof ExperienceRoute
+  '/projection': typeof ProjectionRoute
   '/projector': typeof ProjectorRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/experience' | '/projector' | '/settings'
+  fullPaths:
+    | '/'
+    | '/control'
+    | '/experience'
+    | '/projection'
+    | '/projector'
+    | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/experience' | '/projector' | '/settings'
-  id: '__root__' | '/' | '/experience' | '/projector' | '/settings'
+  to:
+    | '/'
+    | '/control'
+    | '/experience'
+    | '/projection'
+    | '/projector'
+    | '/settings'
+  id:
+    | '__root__'
+    | '/'
+    | '/control'
+    | '/experience'
+    | '/projection'
+    | '/projector'
+    | '/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ControlRoute: typeof ControlRoute
   ExperienceRoute: typeof ExperienceRoute
+  ProjectionRoute: typeof ProjectionRoute
   ProjectorRoute: typeof ProjectorRoute
   SettingsRoute: typeof SettingsRoute
 }
@@ -85,11 +124,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/projection': {
+      id: '/projection'
+      path: '/projection'
+      fullPath: '/projection'
+      preLoaderRoute: typeof ProjectionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/experience': {
       id: '/experience'
       path: '/experience'
       fullPath: '/experience'
       preLoaderRoute: typeof ExperienceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/control': {
+      id: '/control'
+      path: '/control'
+      fullPath: '/control'
+      preLoaderRoute: typeof ControlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -104,7 +157,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ControlRoute: ControlRoute,
   ExperienceRoute: ExperienceRoute,
+  ProjectionRoute: ProjectionRoute,
   ProjectorRoute: ProjectorRoute,
   SettingsRoute: SettingsRoute,
 }

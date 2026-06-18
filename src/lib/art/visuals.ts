@@ -7,8 +7,12 @@
 import type { PersonPose, Vec2 } from "./pose";
 import type { DisplayMode } from "./settings";
 
-const PALETTE_A = ["#4F7CFF", "#22D3EE", "#A5D8FF", "#F8FAFC"];
-const PALETTE_B = ["#8B5CF6", "#C084FC", "#F0ABFC", "#F8FAFC"];
+// 通常時は淡い単色 (静かな空間)
+const PALETTE_A = ["#4F7CFF", "#22D3EE", "#7DD3FC"];
+const PALETTE_B = ["#8B5CF6", "#C084FC", "#F0ABFC"];
+// 接触イベント専用のカラフルパレット (シアン/マゼンタ/イエロー/パープル/ブルー/ピンク)
+const IMPACT_PALETTE = ["#22D3EE", "#F472B6", "#FACC15", "#A78BFA", "#3B82F6", "#EC4899", "#FFFFFF"];
+const pickImpactColor = () => IMPACT_PALETTE[Math.floor(Math.random() * IMPACT_PALETTE.length)];
 
 interface Particle {
   x: number; y: number; vx: number; vy: number;
@@ -70,40 +74,42 @@ export class VisualRenderer {
 
   resize = () => { this.targets.forEach((t) => this.sizeOne(t)); };
 
-  /** 接触インパクト演出を投入 — 大型フラッシュ + 波紋 + パーティクル爆発 + 全画面エネルギー拡散 */
-  triggerImpact(at: Vec2, color = "#22D3EE") {
+  /** 接触インパクト演出 — 大型フラッシュ + 多色波紋 + 光線 + パーティクル爆発 */
+  triggerImpact(at: Vec2, _color?: string) {
     this.flash = Math.min(1, this.flash + 0.95);
     const t0 = this.targets[0];
     if (!t0) return;
     const cx = at.x * t0.w;
     const cy = at.y * t0.h;
-    // 画面全体へ広がる大型リング (エネルギー拡散)
     const screenR = Math.hypot(t0.w, t0.h);
-    for (let i = 0; i < 5; i++) {
+    // 多色リング (エネルギー拡散)
+    for (let i = 0; i < 6; i++) {
       this.rings.push({
         x: cx, y: cy, r: 8,
-        max: screenR * (0.6 + i * 0.25),
-        color, width: 6 - i, life: 0,
+        max: screenR * (0.55 + i * 0.22),
+        color: IMPACT_PALETTE[i % IMPACT_PALETTE.length],
+        width: 7 - i * 0.6, life: 0,
       });
     }
-    // 光線 (放射)
-    const rays = 22;
+    // 光線 (放射) — 色をローテート
+    const rays = 26;
     for (let i = 0; i < rays; i++) {
       this.rays.push({
         x: cx, y: cy, angle: (i / rays) * Math.PI * 2,
-        len: 220 + Math.random() * 320, life: 0, max: 36, color,
+        len: 240 + Math.random() * 360, life: 0, max: 36,
+        color: IMPACT_PALETTE[i % IMPACT_PALETTE.length],
       });
     }
-    // パーティクル爆発
-    for (let i = 0; i < 320; i++) {
+    // パーティクル爆発 — 各粒子がカラフル
+    for (let i = 0; i < 360; i++) {
       const a = Math.random() * Math.PI * 2;
-      const s = 3 + Math.random() * 14;
+      const s = 3 + Math.random() * 16;
       this.particles.push({
         x: cx, y: cy,
         vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-        life: 0, max: 60 + Math.random() * 60,
+        life: 0, max: 60 + Math.random() * 70,
         size: 2 + Math.random() * 5,
-        color: i % 3 === 0 ? "#F8FAFC" : color,
+        color: pickImpactColor(),
         gravity: 0.02,
       });
     }
@@ -120,39 +126,37 @@ export class VisualRenderer {
     persons: PersonPose[], displayMode: DisplayMode, energy: number, closeness: number,
   ) {
     const ctx = t.ctx;
-    // 残像
-    ctx.fillStyle = `rgba(7, 10, 24, ${displayMode === "bodyFollow" ? 0.22 : 0.16})`;
+    // 残像 — 強めに塗りつぶし、白いモヤを残さない (静かな空間)
+    ctx.fillStyle = `rgba(7, 10, 24, ${displayMode === "bodyFollow" ? 0.32 : 0.38})`;
     ctx.fillRect(0, 0, t.w, t.h);
     ctx.globalCompositeOperation = "lighter";
 
-    // --- 各人の演出 ---
+    // --- 各人の演出 (通常時は控えめに) ---
     persons.forEach((p) => {
       const palette = p.id === 0 ? PALETTE_A : PALETTE_B;
       const main = palette[0];
-      // 軌跡
       this.pushTrail(p, palette);
 
       if (displayMode === "bodyFollow") {
         this.drawSkeleton(ctx, t, p, palette);
       }
 
-      // 動きの大きさに応じて手から粒子放出
       this.emitFromWrist(p.wristL, p.wristLSpeed, palette, t);
       this.emitFromWrist(p.wristR, p.wristRSpeed, palette, t);
 
-      // 全身が大きく動く時はオーラ
-      if (p.speed > 0.45) this.drawAura(ctx, t, p, main, p.speed);
+      // 大きな動作のみ、ごく薄いオーラ
+      if (p.speed > 0.6) this.drawAura(ctx, t, p, main, p.speed);
     });
 
-    // 近さに応じて色のブリッジ
-    if (persons.length === 2 && closeness > 0.5) {
+    // 近さに応じて細いブリッジライン (控えめ)
+    if (persons.length === 2 && closeness > 0.55) {
       const a = persons[0], b = persons[1];
       const grad = ctx.createLinearGradient(a.torso.x * t.w, a.torso.y * t.h, b.torso.x * t.w, b.torso.y * t.h);
-      grad.addColorStop(0, "rgba(79,124,255,0.6)");
-      grad.addColorStop(1, "rgba(139,92,246,0.6)");
+      grad.addColorStop(0, "rgba(79,124,255,0.35)");
+      grad.addColorStop(1, "rgba(139,92,246,0.35)");
       ctx.strokeStyle = grad;
-      ctx.lineWidth = 2 + closeness * 4;
-      ctx.globalAlpha = (closeness - 0.5) * 1.4;
+      ctx.lineWidth = 1.2 + closeness * 1.5;
+      ctx.globalAlpha = (closeness - 0.55) * 1.0;
       ctx.beginPath();
       ctx.moveTo(a.torso.x * t.w, a.torso.y * t.h);
       ctx.lineTo(b.torso.x * t.w, b.torso.y * t.h);
@@ -225,32 +229,32 @@ export class VisualRenderer {
   private pushTrail(p: PersonPose, palette: string[]) {
     const t0 = this.targets[0]; if (!t0) return;
     const points: [Vec2, number][] = [
-      [p.wristL, p.wristLSpeed], [p.wristR, p.wristRSpeed], [p.torso, p.speed],
+      [p.wristL, p.wristLSpeed], [p.wristR, p.wristRSpeed],
     ];
     for (const [pt, sp] of points) {
-      if (sp < 0.06) continue;
+      if (sp < 0.12) continue;
       this.trails.push({
         x: pt.x * t0.w, y: pt.y * t0.h,
-        life: 0, max: 30 + sp * 40,
-        size: 4 + sp * 14, color: palette[1],
+        life: 0, max: 14 + sp * 18,                 // 残像短縮
+        size: 2 + sp * 6, color: palette[1],        // サイズ縮小
       });
     }
   }
 
   private emitFromWrist(at: Vec2, speed: number, palette: string[], t: { w: number; h: number }) {
-    if (speed < 0.08) return;
-    const n = Math.floor(speed * 10);
+    if (speed < 0.15) return;                       // 閾値上げ
+    const n = Math.min(4, Math.floor(speed * 4));   // 粒子数削減
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
-      const s = 0.5 + speed * 3;
+      const s = 0.4 + speed * 2;
       this.particles.push({
-        x: at.x * t.w + (Math.random() - 0.5) * 10,
-        y: at.y * t.h + (Math.random() - 0.5) * 10,
+        x: at.x * t.w + (Math.random() - 0.5) * 6,
+        y: at.y * t.h + (Math.random() - 0.5) * 6,
         vx: Math.cos(a) * s, vy: Math.sin(a) * s - 0.3,
-        life: 0, max: 40 + Math.random() * 40,
-        size: 1.5 + Math.random() * 2.5,
+        life: 0, max: 24 + Math.random() * 24,
+        size: 1.0 + Math.random() * 1.8,            // 小粒
         color: palette[Math.floor(Math.random() * palette.length)],
-        gravity: 0.01,
+        gravity: 0.012,
       });
     }
   }
@@ -261,10 +265,9 @@ export class VisualRenderer {
     p: PersonPose, palette: string[],
   ) {
     const pts: Vec2[] = [p.head, p.shoulderL, p.shoulderR, p.elbowL, p.elbowR, p.wristL, p.wristR, p.torso];
-    // 骨ライン
     ctx.strokeStyle = palette[0];
-    ctx.lineWidth = 3;
-    ctx.globalAlpha = 0.7;
+    ctx.lineWidth = 1.6;                            // 細く
+    ctx.globalAlpha = 0.35;                         // 不透明度大幅減
     const lines: [Vec2, Vec2][] = [
       [p.shoulderL, p.shoulderR],
       [p.shoulderL, p.elbowL], [p.elbowL, p.wristL],
@@ -278,29 +281,32 @@ export class VisualRenderer {
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
-    // 各キーポイントに光るドット
+    // キーポイント光るドット (発光範囲縮小)
     for (const pt of pts) {
       const x = pt.x * t.w, y = pt.y * t.h;
-      const r = 12;
+      const r = 6;                                  // 発光範囲を半分に
       const g = ctx.createRadialGradient(x, y, 0, x, y, r);
       g.addColorStop(0, palette[0]); g.addColorStop(1, "transparent");
+      ctx.globalAlpha = 0.55;
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
     }
+    ctx.globalAlpha = 1;
   }
 
   private drawAura(ctx: CanvasRenderingContext2D, t: { w: number; h: number }, p: PersonPose, color: string, intensity: number) {
     const x = p.torso.x * t.w, y = p.torso.y * t.h;
-    const r = 80 + intensity * 240;
+    const r = 50 + intensity * 120;                 // 半径削減
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
     g.addColorStop(0, color);
-    g.addColorStop(0.5, "rgba(255,255,255,0.15)");
+    g.addColorStop(0.5, "rgba(255,255,255,0.04)"); // 白いモヤ削減
     g.addColorStop(1, "transparent");
-    ctx.globalAlpha = 0.5 * intensity;
+    ctx.globalAlpha = 0.18 * intensity;             // 元の50%以下に
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
     ctx.globalAlpha = 1;
   }
+
 
   dispose() {
     window.removeEventListener("resize", this.resize);

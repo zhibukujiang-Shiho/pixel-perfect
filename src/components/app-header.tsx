@@ -22,6 +22,9 @@ export function AppHeader() {
           <Link to="/experience" className="btn btn-secondary" style={{ height: 40, padding: "0 14px" }}>
             体験
           </Link>
+          <Link to="/control" className="btn btn-secondary" style={{ height: 40, padding: "0 14px" }}>
+            Control
+          </Link>
           <Link to="/settings" className="btn btn-secondary" style={{ height: 40, padding: "0 14px" }} aria-label="設定">
             設定
           </Link>
