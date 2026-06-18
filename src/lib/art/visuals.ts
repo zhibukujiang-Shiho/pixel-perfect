@@ -126,39 +126,37 @@ export class VisualRenderer {
     persons: PersonPose[], displayMode: DisplayMode, energy: number, closeness: number,
   ) {
     const ctx = t.ctx;
-    // 残像
-    ctx.fillStyle = `rgba(7, 10, 24, ${displayMode === "bodyFollow" ? 0.22 : 0.16})`;
+    // 残像 — 強めに塗りつぶし、白いモヤを残さない (静かな空間)
+    ctx.fillStyle = `rgba(7, 10, 24, ${displayMode === "bodyFollow" ? 0.32 : 0.38})`;
     ctx.fillRect(0, 0, t.w, t.h);
     ctx.globalCompositeOperation = "lighter";
 
-    // --- 各人の演出 ---
+    // --- 各人の演出 (通常時は控えめに) ---
     persons.forEach((p) => {
       const palette = p.id === 0 ? PALETTE_A : PALETTE_B;
       const main = palette[0];
-      // 軌跡
       this.pushTrail(p, palette);
 
       if (displayMode === "bodyFollow") {
         this.drawSkeleton(ctx, t, p, palette);
       }
 
-      // 動きの大きさに応じて手から粒子放出
       this.emitFromWrist(p.wristL, p.wristLSpeed, palette, t);
       this.emitFromWrist(p.wristR, p.wristRSpeed, palette, t);
 
-      // 全身が大きく動く時はオーラ
-      if (p.speed > 0.45) this.drawAura(ctx, t, p, main, p.speed);
+      // 大きな動作のみ、ごく薄いオーラ
+      if (p.speed > 0.6) this.drawAura(ctx, t, p, main, p.speed);
     });
 
-    // 近さに応じて色のブリッジ
-    if (persons.length === 2 && closeness > 0.5) {
+    // 近さに応じて細いブリッジライン (控えめ)
+    if (persons.length === 2 && closeness > 0.55) {
       const a = persons[0], b = persons[1];
       const grad = ctx.createLinearGradient(a.torso.x * t.w, a.torso.y * t.h, b.torso.x * t.w, b.torso.y * t.h);
-      grad.addColorStop(0, "rgba(79,124,255,0.6)");
-      grad.addColorStop(1, "rgba(139,92,246,0.6)");
+      grad.addColorStop(0, "rgba(79,124,255,0.35)");
+      grad.addColorStop(1, "rgba(139,92,246,0.35)");
       ctx.strokeStyle = grad;
-      ctx.lineWidth = 2 + closeness * 4;
-      ctx.globalAlpha = (closeness - 0.5) * 1.4;
+      ctx.lineWidth = 1.2 + closeness * 1.5;
+      ctx.globalAlpha = (closeness - 0.55) * 1.0;
       ctx.beginPath();
       ctx.moveTo(a.torso.x * t.w, a.torso.y * t.h);
       ctx.lineTo(b.torso.x * t.w, b.torso.y * t.h);
