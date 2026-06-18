@@ -7,8 +7,12 @@
 import type { PersonPose, Vec2 } from "./pose";
 import type { DisplayMode } from "./settings";
 
-const PALETTE_A = ["#4F7CFF", "#22D3EE", "#A5D8FF", "#F8FAFC"];
-const PALETTE_B = ["#8B5CF6", "#C084FC", "#F0ABFC", "#F8FAFC"];
+// 通常時は淡い単色 (静かな空間)
+const PALETTE_A = ["#4F7CFF", "#22D3EE", "#7DD3FC"];
+const PALETTE_B = ["#8B5CF6", "#C084FC", "#F0ABFC"];
+// 接触イベント専用のカラフルパレット (シアン/マゼンタ/イエロー/パープル/ブルー/ピンク)
+const IMPACT_PALETTE = ["#22D3EE", "#F472B6", "#FACC15", "#A78BFA", "#3B82F6", "#EC4899", "#FFFFFF"];
+const pickImpactColor = () => IMPACT_PALETTE[Math.floor(Math.random() * IMPACT_PALETTE.length)];
 
 interface Particle {
   x: number; y: number; vx: number; vy: number;
