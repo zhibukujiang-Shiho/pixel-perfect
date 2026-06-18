@@ -74,40 +74,42 @@ export class VisualRenderer {
 
   resize = () => { this.targets.forEach((t) => this.sizeOne(t)); };
 
-  /** 接触インパクト演出を投入 — 大型フラッシュ + 波紋 + パーティクル爆発 + 全画面エネルギー拡散 */
-  triggerImpact(at: Vec2, color = "#22D3EE") {
+  /** 接触インパクト演出 — 大型フラッシュ + 多色波紋 + 光線 + パーティクル爆発 */
+  triggerImpact(at: Vec2, _color?: string) {
     this.flash = Math.min(1, this.flash + 0.95);
     const t0 = this.targets[0];
     if (!t0) return;
     const cx = at.x * t0.w;
     const cy = at.y * t0.h;
-    // 画面全体へ広がる大型リング (エネルギー拡散)
     const screenR = Math.hypot(t0.w, t0.h);
-    for (let i = 0; i < 5; i++) {
+    // 多色リング (エネルギー拡散)
+    for (let i = 0; i < 6; i++) {
       this.rings.push({
         x: cx, y: cy, r: 8,
-        max: screenR * (0.6 + i * 0.25),
-        color, width: 6 - i, life: 0,
+        max: screenR * (0.55 + i * 0.22),
+        color: IMPACT_PALETTE[i % IMPACT_PALETTE.length],
+        width: 7 - i * 0.6, life: 0,
       });
     }
-    // 光線 (放射)
-    const rays = 22;
+    // 光線 (放射) — 色をローテート
+    const rays = 26;
     for (let i = 0; i < rays; i++) {
       this.rays.push({
         x: cx, y: cy, angle: (i / rays) * Math.PI * 2,
-        len: 220 + Math.random() * 320, life: 0, max: 36, color,
+        len: 240 + Math.random() * 360, life: 0, max: 36,
+        color: IMPACT_PALETTE[i % IMPACT_PALETTE.length],
       });
     }
-    // パーティクル爆発
-    for (let i = 0; i < 320; i++) {
+    // パーティクル爆発 — 各粒子がカラフル
+    for (let i = 0; i < 360; i++) {
       const a = Math.random() * Math.PI * 2;
-      const s = 3 + Math.random() * 14;
+      const s = 3 + Math.random() * 16;
       this.particles.push({
         x: cx, y: cy,
         vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-        life: 0, max: 60 + Math.random() * 60,
+        life: 0, max: 60 + Math.random() * 70,
         size: 2 + Math.random() * 5,
-        color: i % 3 === 0 ? "#F8FAFC" : color,
+        color: pickImpactColor(),
         gravity: 0.02,
       });
     }
